@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestão Financeira PJ</title>
+  <!-- Tailwind CSS & Chart.js via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { background-color: #f1f5f9; font-family: 'Inter', system-ui, sans-serif; }
+    .tab-active { border-bottom: 3px solid #2563eb; color: #1d4ed8; font-weight: 600; }
+    .loader { border: 3px solid #e2e8f0; border-top: 3px solid #2563eb; border-radius: 50%; width: 22px; height: 22px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="text-slate-800 pb-12">
+
+  <!-- TOPBAR -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-blue-600 p-2 rounded-lg"><i class="fa-solid fa-briefcase text-lg"></i></div>
+        <div>
+          <h1 id="uiNomeEmpresa" class="font-bold text-lg leading-tight">Gestão Financeira PJ</h1>
+          <span id="statusConexao" class="text-xs text-slate-400">Verificando conexão...</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <!-- Filtro de Mês/Ano -->
+        <input type="month" id="filtroMes" class="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:outline-none focus:border-blue-500">
+        
+        <button onclick="carregarDados()" title="Sincronizar com a Planilha" class="bg-slate-800 hover:bg-slate-700 p-2.5 rounded-lg border border-slate-700 transition">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+        <button onclick="abrirModalConfig()" title="Configurar API e PIN" class="bg-slate-800 hover:bg-slate-700 p-2.5 rounded-lg border border-slate-700 transition">
+          <i class="fa-solid fa-gear"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- NAVEGAÇÃO DE ABAS -->
+    <div class="max-w-7xl mx-auto px-4 flex gap-6 text-sm bg-slate-900 border-t border-slate-800 overflow-x-auto">
+      <button onclick="mudarAba('dashboard')" id="tab-dashboard" class="py-3 px-1 tab-active whitespace-nowrap"><i class="fa-solid fa-chart-pie mr-1"></i> Dashboard & Caixa</button>
+      <button onclick="mudarAba('lancamentos')" id="tab-lancamentos" class="py-3 px-1 text-slate-400 hover:text-white whitespace-nowrap"><i class="fa-solid fa-list-check mr-1"></i> Contas a Pagar / Receber</button>
+      <button onclick="mudarAba('custos')" id="tab-custos" class="py-3 px-1 text-slate-400 hover:text-white whitespace-nowrap"><i class="fa-solid fa-repeat mr-1"></i> Custos Fixos Operacionais</button>
+    </div>
+  </header>
+
+  <!-- BARRA DE CARREGAMENTO -->
+  <div id="barraLoading" class="hidden bg-blue-50 border-b border-blue-200 px-4 py-2">
+    <div class="max-w-7xl mx-auto flex items-center gap-3 text-sm text-blue-800 font-medium">
+      <div class="loader"></div>
+      <span id="textoLoading">Sincronizando com o Google Sheets...</span>
+    </div>
+  </div>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="max-w-7xl mx-auto px-4 mt-6">
+
+    <!-- ================= ABA 1: DASHBOARD ================= -->
+    <section id="sec-dashboard" class="space-y-6">
+      <!-- Cards de KPIs -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex justify-between items-center text-slate-500 text-xs font-semibold uppercase">
+            <span>Entradas (Realizado)</span>
+            <i class="fa-solid fa-arrow-trend-up text-emerald-600 text-base"></i>
+          </div>
+          <p id="kpiEntradasPagas" class="text-2xl font-bold text-emerald-600 mt-2">R$ 0,00</p>
+          <p id="kpiEntradasPendentes" class="text-xs text-slate-500 mt-1">A receber: R$ 0,00</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex justify-between items-center text-slate-500 text-xs font-semibold uppercase">
+            <span>Saídas (Pago)</span>
+            <i class="fa-solid fa-arrow-trend-down text-rose-600 text-base"></i>
+          </div>
+          <p id="kpiSaidasPagas" class="text-2xl font-bold text-rose-600 mt-2">R$ 0,00</p>
+          <p id="kpiSaidasPendentes" class="text-xs text-slate-500 mt-1">A pagar: R$ 0,00</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex justify-between items-center text-slate-500 text-xs font-semibold uppercase">
+            <span>Saldo Real (Caixa Mês)</span>
+            <i class="fa-solid fa-wallet text-blue-600 text-base"></i>
+          </div>
+          <p id="kpiSaldoReal" class="text-2xl font-bold text-slate-800 mt-2">R$ 0,00</p>
+          <p class="text-xs text-slate-500 mt-1">Entradas Pagas - Saídas Pagas</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+          <div class="flex justify-between items-center text-slate-500 text-xs font-semibold uppercase">
+            <span>Saldo Projetado (Final)</span>
+            <i class="fa-solid fa-scale-balanced text-indigo-600 text-base"></i>
+          </div>
+          <p id="kpiSaldoProjetado" class="text-2xl font-bold text-indigo-600 mt-2">R$ 0,00</p>
+          <p id="kpiAlertaVencidos" class="text-xs text-rose-600 font-medium mt-1">0 pendências vencidas</p>
+        </div>
+      </div>
+
+      <!-- Botões de Ação Rápida -->
+      <div class="flex flex-wrap gap-3">
+        <button onclick="abrirModalLancamento('Entrada')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg font-medium text-sm shadow-sm flex items-center gap-2 transition">
+          <i class="fa-solid fa-plus"></i> Nova Receita (Entrada)
+        </button>
+        <button onclick="abrirModalLancamento('Saída')" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-lg font-medium text-sm shadow-sm flex items-center gap-2 transition">
+          <i class="fa-solid fa-minus"></i> Nova Despesa (Saída)
+        </button>
+        <button onclick="gerarCustosMesAtual()" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-lg font-medium text-sm shadow-sm flex items-center gap-2 transition">
+          <i class="fa-solid fa-bolt text-amber-400"></i> Gerar Custos Fixos deste Mês
+        </button>
+      </div>
+
+      <!-- Gráficos -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+          <h3 class="font-bold text-slate-700 text-sm mb-4">Visão do Mês: Realizado vs. Previsto</h3>
+          <canvas id="graficoFluxo" height="200"></canvas>
+        </div>
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+          <h3 class="font-bold text-slate-700 text-sm mb-4">Despesas por Categoria</h3>
+          <canvas id="graficoCategorias" height="200"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ABA 2: LANÇAMENTOS (PAGAR / RECEBER) ================= -->
+    <section id="sec-lancamentos" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="filtroTipo" onchange="renderizarTabelaLancamentos()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="TODOS">Todos os Tipos</option>
+            <option value="Entrada">Apenas Entradas</option>
+            <option value="Saída">Apenas Saídas</option>
+          </select>
+          <select id="filtroStatus" onchange="renderizarTabelaLancamentos()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
+            <option value="TODOS">Todos os Status</option>
+            <option value="Pendente">Pendentes / Atrasados</option>
+            <option value="Pago">Pagos / Recebidos</option>
+          </select>
+        </div>
+        <button onclick="abrirModalLancamento('Saída')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+          <i class="fa-solid fa-plus mr-1"></i> Novo Lançamento
+        </button>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-xs">
+              <th class="py-3 px-4">Vencimento</th>
+              <th class="py-3 px-4">Tipo</th>
+              <th class="py-3 px-4">Descrição / Centro Custo</th>
+              <th class="py-3 px-4">Categoria</th>
+              <th class="py-3 px-4">Valor</th>
+              <th class="py-3 px-4">Status</th>
+              <th class="py-3 px-4 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaLancamentosBody" class="divide-y divide-slate-200"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= ABA 3: CUSTOS OPERACIONAIS FIXOS ================= -->
+    <section id="sec-custos" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h2 class="font-bold text-slate-800">Matriz de Custos Operacionais Recorrentes</h2>
+          <p class="text-xs text-slate-500">Cadastre despesas fixas (aluguel, DAS, sistemas) para lançá-las com 1 clique todo mês.</p>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="gerarCustosMesAtual()" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg text-sm font-medium">
+            <i class="fa-solid fa-bolt mr-1"></i> Lançar Fixos no Mês Atual
+          </button>
+          <button onclick="abrirModalCustoOp()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
+            <i class="fa-solid fa-plus mr-1"></i> Novo Custo Fixo
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-xs">
+              <th class="py-3 px-4">Dia Venc.</th>
+              <th class="py-3 px-4">Descrição</th>
+              <th class="py-3 px-4">Categoria</th>
+              <th class="py-3 px-4">Centro de Custo</th>
+              <th class="py-3 px-4">Valor Base</th>
+              <th class="py-3 px-4">Ativo</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaCustosBody" class="divide-y divide-slate-200"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= MODAL: NOVO LANÇAMENTO ================= -->
+  <div id="modalLancamento" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 id="tituloModalLanc" class="font-bold text-lg">Novo Lançamento</h3>
+        <button onclick="fecharModal('modalLancamento')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+      </div>
+      <form id="formLancamento" onsubmit="salvarLancamento(event)" class="space-y-3 text-sm">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Tipo</label>
+            <select id="lancTipo" onchange="atualizarSelectCategorias()" required class="w-full border rounded-lg px-3 py-2">
+              <option value="Entrada">Entrada (Receita)</option>
+              <option value="Saída">Saída (Despesa)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Valor (R$)</label>
+            <input type="number" step="0.01" id="lancValor" required placeholder="0.00" class="w-full border rounded-lg px-3 py-2">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Descrição</label>
+          <input type="text" id="lancDescricao" required placeholder="Ex: Manutenção, Venda, Combustível..." class="w-full border rounded-lg px-3 py-2">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Categoria</label>
+            <select id="lancCategoria" required class="w-full border rounded-lg px-3 py-2"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Centro de Custo</label>
+            <input type="text" id="lancCentroCusto" placeholder="Ex: Operacional, Frota, Geral" value="Geral" class="w-full border rounded-lg px-3 py-2">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Vencimento</label>
+            <input type="date" id="lancVencimento" required class="w-full border rounded-lg px-3 py-2">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Status Inicial</label>
+            <select id="lancStatus" class="w-full border rounded-lg px-3 py-2">
+              <option value="Pendente">Pendente</option>
+              <option value="Pago">Já Pago / Recebido</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Forma Pagto</label>
+            <select id="lancForma" class="w-full border rounded-lg px-3 py-2">
+              <option value="PIX">PIX</option>
+              <option value="Boleto">Boleto</option>
+              <option value="Cartão">Cartão</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Transferência">Transferência</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t flex justify-end gap-2">
+          <button type="button" onclick="fecharModal('modalLancamento')" class="px-4 py-2 rounded-lg border text-slate-600 hover:bg-slate-50">Cancelar</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">Salvar na Planilha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: NOVO CUSTO OPERACIONAL ================= -->
+  <div id="modalCustoOp" class="hidden fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-lg">Cadastrar Custo Fixo Mensal</h3>
+        <button onclick="fecharModal('modalCustoOp')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+      </div>
+      <form id="formCustoOp" onsubmit="salvarCustoOp(event)" class="space-y-3 text-sm">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Descrição do Custo Fixo</label>
+          <input type="text" id="copDescricao" required placeholder="Ex: Contador, Internet, DAS..." class="w-full border rounded-lg px-3 py-2">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Valor Base (R$)</label>
+            <input type="number" step="0.01" id="copValor" required placeholder="100.00" class="w-full border rounded-lg px-3 py-2">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Dia do Vencimento (1-31)</label>
+            <input type="number" min="1" max="31" id="copDia" required placeholder="10" class="w-full border rounded-lg px-3 py-2">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Categoria</label>
+          <select id="copCategoria" required class="w-full border rounded-lg px-3 py-2"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Centro de Custo</label>
+          <input type="text" id="copCentro" value="Operacional" class="w-full border rounded-lg px-3 py-2">
+        </div>
+        <div class="pt-3 border-t flex justify-end gap-2">
+          <button type="button" onclick="fecharModal('modalCustoOp')" class="px-4 py-2 rounded-lg border text-slate-600">Cancelar</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 text-white font-medium">Salvar Custo Fixo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: CONFIGURAÇÃO WHITE-LABEL (API + PIN) ================= -->
+  <div id="modalConfig" class="hidden fixed inset-0 bg-slate-900/75 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-xl space-y-4">
+      <div class="flex items-center gap-2 border-b pb-3">
+        <i class="fa-solid fa-link text-blue-600 text-lg"></i>
+        <h3 class="font-bold text-lg">Conexão com Google Sheets (PJ)</h3>
+      </div>
+      <p class="text-xs text-slate-500">Estes dados ficam salvos apenas no seu navegador (`localStorage`), permitindo conectar este painel a qualquer conta Google.</p>
+      <div class="space-y-3 text-sm">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">URL do Web App (Google Apps Script)</label>
+          <input type="url" id="cfgUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border rounded-lg px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Token / PIN de Segurança (Aba Config)</label>
+          <input type="password" id="cfgToken" placeholder="Ex: 123456" class="w-full border rounded-lg px-3 py-2">
+        </div>
+      </div>
+      <div class="pt-3 border-t flex justify-end gap-2">
+        <button onclick="fecharModal('modalConfig')" class="px-4 py-2 rounded-lg border text-slate-600">Fechar</button>
+        <button onclick="salvarConfig()" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">Salvar e Conectar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LÓGICA JAVASCRIPT ================= -->
+  <script>
+    const STORAGE_KEY_URL = 'fin_pj_api_url';
+    const STORAGE_KEY_TOKEN = 'fin_pj_api_token';
+
+    let estado = {
+      lancamentos: [],
+      categorias: [],
+      custos_op: [],
+      config: []
+    };
+
+    let chartFluxo = null;
+    let chartCat = null;
+
+    // Inicialização
+    window.addEventListener('DOMContentLoaded', () => {
+      const hoje = new Date();
+      const mesAtual = hoje.toISOString().slice(0, 7);
+      document.getElementById('filtroMes').value = mesAtual;
+      document.getElementById('lancVencimento').value = hoje.toISOString().slice(0, 10);
+
+      document.getElementById('filtroMes').addEventListener('change', atualizarVisaoGeral);
+
+      const url = localStorage.getItem(STORAGE_KEY_URL);
+      const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+
+      if (!url || !token) {
+        abrirModalConfig();
+      } else {
+        carregarDados();
+      }
+    });
+
+    // Alternar Abas
+    function mudarAba(aba) {
+      ['dashboard', 'lancamentos', 'custos'].forEach(item => {
+        document.getElementById(`sec-${item}`).classList.add('hidden');
+        document.getElementById(`tab-${item}`).classList.remove('tab-active');
+        document.getElementById(`tab-${item}`).classList.add('text-slate-400');
+      });
+      document.getElementById(`sec-${aba}`).classList.remove('hidden');
+      document.getElementById(`tab-${aba}`).classList.add('tab-active');
+      document.getElementById(`tab-${aba}`).classList.remove('text-slate-400');
+    }
+
+    // Controle de Modais
+    function abrirModalConfig() {
+      document.getElementById('cfgUrl').value = localStorage.getItem(STORAGE_KEY_URL) || '';
+      document.getElementById('cfgToken').value = localStorage.getItem(STORAGE_KEY_TOKEN) || '';
+      document.getElementById('modalConfig').classList.remove('hidden');
+    }
+
+    function salvarConfig() {
+      const url = document.getElementById('cfgUrl').value.trim();
+      const token = document.getElementById('cfgToken').value.trim();
+      if (!url || !token) return alert('Preencha a URL do Web App e o PIN.');
+      localStorage.setItem(STORAGE_KEY_URL, url);
+      localStorage.setItem(STORAGE_KEY_TOKEN, token);
+      fecharModal('modalConfig');
+      carregarDados();
+    }
+
+    function fecharModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function mostrarLoading(mostrar, texto = 'Sincronizando com o Google Sheets...') {
+      const el = document.getElementById('barraLoading');
+      document.getElementById('textoLoading').innerText = texto;
+      mostrar ? el.classList.remove('hidden') : el.classList.add('hidden');
+    }
+
+    // Comunicação GET com Apps Script
+    async function carregarDados() {
+      const url = localStorage.getItem(STORAGE_KEY_URL);
+      const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+      if (!url || !token) return abrirModalConfig();
+
+      mostrarLoading(true, 'Carregando dados da planilha...');
+      try {
+        const res = await fetch(`${url}?acao=resumo_completo&token=${encodeURIComponent(token)}`);
+        const json = await res.json();
+
+        if (json.status !== 'sucesso') {
+          document.getElementById('statusConexao').innerText = 'Erro: ' + json.mensagem;
+          alert('Erro da API: ' + json.mensagem);
+          mostrarLoading(false);
+          return;
+        }
+
+        estado.lancamentos = json.lancamentos || [];
+        estado.categorias = json.categorias || [];
+        estado.custos_op = json.custos_op || [];
+        estado.config = json.config || [];
+
+        const cfgNome = estado.config.find(c => c.Chave === 'NOME_EMPRESA');
+        if (cfgNome && cfgNome.Valor) {
+          document.getElementById('uiNomeEmpresa').innerText = cfgNome.Valor;
+        }
+
+        document.getElementById('statusConexao').innerText = 'Conectado e sincronizado';
+        popularSelectsCategorias();
+        atualizarVisaoGeral();
+      } catch (err) {
+        document.getElementById('statusConexao').innerText = 'Falha de conexão';
+        alert('Não foi possível conectar. Verifique a URL do Web App e as permissões de implantação.');
+      } finally {
+        mostrarLoading(false);
+      }
+    }
+
+    // Comunicação POST com Apps Script (text/plain evita preflight CORS no GitHub Pages)
+    async function enviarPost(payload) {
+      const url = localStorage.getItem(STORAGE_KEY_URL);
+      const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+      payload.token = token;
+
+      mostrarLoading(true, 'Salvando alterações na planilha...');
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.status !== 'sucesso') {
+          alert('Atenção: ' + json.mensagem);
+          return false;
+        }
+        await carregarDados();
+        return true;
+      } catch (e) {
+        alert('Erro ao gravar na planilha: ' + e.message);
+        return false;
+      } finally {
+        mostrarLoading(false);
+      }
+    }
+
+    // Formatação Moeda BRL
+    function formatarMoeda(valor) {
+      return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    // Atualização da Interface
+    function atualizarVisaoGeral() {
+      const mesFiltro = document.getElementById('filtroMes').value; // "YYYY-MM"
+      const hojeStr = new Date().toISOString().slice(0, 10);
+
+      const lancMes = estado.lancamentos.filter(l => {
+        const dataRef = String(l.Data_Vencimento || l.Data_Competencia || '');
+        return dataRef.startsWith(mesFiltro);
+      });
+
+      let entPagas = 0, entPend = 0, saiPagas = 0, saiPend = 0, vencidos = 0;
+
+      lancMes.forEach(l => {
+        const v = Number(l.Valor) || 0;
+        const pago = String(l.Status).toLowerCase() === 'pago';
+        if (l.Tipo === 'Entrada') {
+          pago ? entPagas += v : entPend += v;
+        } else {
+          pago ? saiPagas += v : saiPend += v;
+        }
+        if (!pago && l.Data_Vencimento && l.Data_Vencimento < hojeStr) {
+          vencidos++;
+        }
+      });
+
+      const saldoReal = entPagas - saiPagas;
+      const saldoProjetado = (entPagas + entPend) - (saiPagas + saiPend);
+
+      document.getElementById('kpiEntradasPagas').innerText = formatarMoeda(entPagas);
+      document.getElementById('kpiEntradasPendentes').innerText = `A receber: ${formatarMoeda(entPend)}`;
+      document.getElementById('kpiSaidasPagas').innerText = formatarMoeda(saiPagas);
+      document.getElementById('kpiSaidasPendentes').innerText = `A pagar: ${formatarMoeda(saiPend)}`;
+      document.getElementById('kpiSaldoReal').innerText = formatarMoeda(saldoReal);
+      document.getElementById('kpiSaldoProjetado').innerText = formatarMoeda(saldoProjetado);
+      document.getElementById('kpiAlertaVencidos').innerText = vencidos > 0
+        ? `⚠️ ${vencidos} conta(s) vencida(s) no mês`
+        : 'Nenhuma conta vencida no mês';
+
+      renderizarGraficos(entPagas, entPend, saiPagas, saiPend, lancMes);
+      renderizarTabelaLancamentos();
+      renderizarTabelaCustos();
+    }
+
+    // Renderizar Gráficos
+    function renderizarGraficos(entPagas, entPend, saiPagas, saiPend, lancMes) {
+      const ctxFluxo = document.getElementById('graficoFluxo').getContext('2d');
+      if (chartFluxo) chartFluxo.destroy();
+      chartFluxo = new Chart(ctxFluxo, {
+        type: 'bar',
+        data: {
+          labels: ['Entradas (Receitas)', 'Saídas (Despesas)'],
+          datasets: [
+            { label: 'Realizado (Pago)', data: [entPagas, saiPagas], backgroundColor: ['#10b981', '#f43f5e'] },
+            { label: 'Pendente (Aberto)', data: [entPend, saiPend], backgroundColor: ['#a7f3d0', '#fecdd3'] }
+          ]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
+
+      // Agrupar despesas por categoria
+      const mapaCat = {};
+      lancMes.filter(l => l.Tipo === 'Saída').forEach(l => {
+        const cat = l.Categoria || 'Outros';
+        mapaCat[cat] = (mapaCat[cat] || 0) + (Number(l.Valor) || 0);
+      });
+
+      const ctxCat = document.getElementById('graficoCategorias').getContext('2d');
+      if (chartCat) chartCat.destroy();
+      chartCat = new Chart(ctxCat, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(mapaCat).length ? Object.keys(mapaCat) : ['Sem despesas no mês'],
+          datasets: [{
+            data: Object.keys(mapaCat).length ? Object.values(mapaCat) : [1],
+            backgroundColor: ['#3b82f6', '#f43f5e', '#f59e0b', '#10b981', '#8b5cf6', '#64748b', '#06b6d4']
+          }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
+    }
+
+    // Renderizar Tabela de Lançamentos
+    function renderizarTabelaLancamentos() {
+      const mesFiltro = document.getElementById('filtroMes').value;
+      const tipoFiltro = document.getElementById('filtroTipo').value;
+      const statusFiltro = document.getElementById('filtroStatus').value;
+      const hojeStr = new Date().toISOString().slice(0, 10);
+
+      const filtrados = estado.lancamentos.filter(l => {
+        const dataRef = String(l.Data_Vencimento || l.Data_Competencia || '');
+        if (!dataRef.startsWith(mesFiltro)) return false;
+        if (tipoFiltro !== 'TODOS' && l.Tipo !== tipoFiltro) return false;
+        if (statusFiltro === 'Pago' && l.Status !== 'Pago') return false;
+        if (statusFiltro === 'Pendente' && l.Status === 'Pago') return false;
+        return true;
+      }).sort((a, b) => String(a.Data_Vencimento).localeCompare(String(b.Data_Vencimento)));
+
+      const tbody = document.getElementById('tabelaLancamentosBody');
+      if (!filtrados.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">Nenhum lançamento encontrado para este filtro.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtrados.map(l => {
+        const pago = l.Status === 'Pago';
+        const atrasado = !pago && l.Data_Vencimento && l.Data_Vencimento < hojeStr;
+        const badgeStatus = pago
+          ? `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Pago</span>`
+          : atrasado
+            ? `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">Atrasado</span>`
+            : `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Pendente</span>`;
+
+        const corValor = l.Tipo === 'Entrada' ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold';
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="py-3 px-4 whitespace-nowrap">${l.Data_Vencimento || '-'}</td>
+            <td class="py-3 px-4">${l.Tipo}</td>
+            <td class="py-3 px-4">
+              <div class="font-medium text-slate-800">${l.Descricao}</div>
+              <div class="text-xs text-slate-400">${l.Centro_Custo || 'Geral'} • ${l.Forma_Pagto || 'PIX'}</div>
+            </td>
+            <td class="py-3 px-4 text-slate-600">${l.Categoria}</td>
+            <td class="py-3 px-4 whitespace-nowrap ${corValor}">${formatarMoeda(l.Valor)}</td>
+            <td class="py-3 px-4">${badgeStatus}</td>
+            <td class="py-3 px-4 text-right whitespace-nowrap space-x-1">
+              ${!pago ? `<button onclick="baixarConta('${l.ID}')" title="Dar Baixa (Marcar como Pago)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs font-medium"><i class="fa-solid fa-check mr-1"></i>Baixar</button>` : ''}
+              <button onclick="excluirConta('${l.ID}')" title="Excluir" class="text-slate-400 hover:text-rose-600 px-2 py-1"><i class="fa-solid fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Renderizar Tabela de Custos Operacionais
+    function renderizarTabelaCustos() {
+      const tbody = document.getElementById('tabelaCustosBody');
+      if (!estado.custos_op.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-400">Nenhum custo operacional cadastrado.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = estado.custos_op.map(c => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-3 px-4 font-bold text-slate-700">Todo dia ${c.Dia_Vencimento}</td>
+          <td class="py-3 px-4 font-medium">${c.Descricao}</td>
+          <td class="py-3 px-4 text-slate-600">${c.Categoria}</td>
+          <td class="py-3 px-4 text-slate-500">${c.Centro_Custo}</td>
+          <td class="py-3 px-4 font-semibold text-rose-600">${formatarMoeda(c.Valor_Base)}</td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">${c.Ativo}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    // Popular Categorias nos Modais
+    function popularSelectsCategorias() {
+      atualizarSelectCategorias();
+      const selectCop = document.getElementById('copCategoria');
+      const saidas = estado.categorias.filter(c => c.Tipo_Fluxo === 'Saída');
+      selectCop.innerHTML = saidas.map(c => `<option value="${c.Nome_Categoria}">${c.Nome_Categoria}</option>`).join('');
+    }
+
+    function atualizarSelectCategorias() {
+      const tipo = document.getElementById('lancTipo').value;
+      const select = document.getElementById('lancCategoria');
+      const filtradas = estado.categorias.filter(c => c.Tipo_Fluxo === tipo);
+      select.innerHTML = filtradas.map(c => `<option value="${c.Nome_Categoria}">${c.Nome_Categoria}</option>`).join('');
+    }
+
+    function abrirModalLancamento(tipoPadrao) {
+      document.getElementById('lancTipo').value = tipoPadrao;
+      document.getElementById('tituloModalLanc').innerText = tipoPadrao === 'Entrada' ? 'Nova Receita (Entrada)' : 'Nova Despesa (Saída)';
+      atualizarSelectCategorias();
+      document.getElementById('modalLancamento').classList.remove('hidden');
+    }
+
+    function abrirModalCustoOp() {
+      document.getElementById('modalCustoOp').classList.remove('hidden');
+    }
+
+    // Ações de Gravação
+    async function salvarLancamento(e) {
+      e.preventDefault();
+      const status = document.getElementById('lancStatus').value;
+      const venc = document.getElementById('lancVencimento').value;
+      const dados = {
+        Tipo: document.getElementById('lancTipo').value,
+        Valor: parseFloat(document.getElementById('lancValor').value),
+        Descricao: document.getElementById('lancDescricao').value,
+        Categoria: document.getElementById('lancCategoria').value,
+        Centro_Custo: document.getElementById('lancCentroCusto').value,
+        Data_Competencia: venc,
+        Data_Vencimento: venc,
+        Data_Pagamento: status === 'Pago' ? venc : '',
+        Status: status,
+        Forma_Pagto: document.getElementById('lancForma').value
+      };
+
+      const ok = await enviarPost({ acao: 'adicionar_lancamento', dados });
+      if (ok) {
+        document.getElementById('formLancamento').reset();
+        document.getElementById('lancVencimento').value = venc;
+        fecharModal('modalLancamento');
+      }
+    }
+
+    async function baixarConta(id) {
+      const hoje = new Date().toISOString().slice(0, 10);
+      await enviarPost({ acao: 'baixar_lancamento', id: id, data_pagamento: hoje });
+    }
+
+    async function excluirConta(id) {
+      if (!confirm('Deseja realmente excluir este lançamento da planilha?')) return;
+      await enviarPost({ acao: 'excluir_lancamento', id: id });
+    }
+
+    async function salvarCustoOp(e) {
+      e.preventDefault();
+      const dados = {
+        Descricao: document.getElementById('copDescricao').value,
+        Valor_Base: parseFloat(document.getElementById('copValor').value),
+        Dia_Vencimento: parseInt(document.getElementById('copDia').value),
+        Categoria: document.getElementById('copCategoria').value,
+        Centro_Custo: document.getElementById('copCentro').value
+      };
+      const ok = await enviarPost({ acao: 'adicionar_custo_op', dados });
+      if (ok) {
+        document.getElementById('formCustoOp').reset();
+        fecharModal('modalCustoOp');
+      }
+    }
+
+    async function gerarCustosMesAtual() {
+      const mesAno = document.getElementById('filtroMes').value;
+      if (!confirm(`Gerar todos os custos operacionais fixos para o mês ${mesAno}? (O sistema ignora os que já foram lançados no mês)`)) return;
+      await enviarPost({ acao: 'gerar_custos_mes', mes_ano: mesAno });
+    }
+  </script>
+</body>
+</html>
