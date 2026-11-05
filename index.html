@@ -702,9 +702,12 @@
             <td class="py-3 px-4">${badgeStatus}</td>
             <td class="py-3 px-4 text-right whitespace-nowrap space-x-1">
               ${!pago ? `<button onclick="baixarConta('${l.ID}')" title="Dar Baixa (Marcar como Pago)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs font-medium"><i class="fa-solid fa-check mr-1"></i>Baixar</button>` : ''}
+              <!-- Botão extra na coluna de Ações da tabela (apenas para contas pendentes) -->
+              ${!pago ? `<button onclick="abaterAdiantamento('${l.ID}', '${l.Descricao}', ${l.Valor})" title="Descontar Adiantamento / Pago por fora" class="bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs font-medium"><i class="fa-solid fa-hand-holding-dollar"></i></button>` : ''}
               <button onclick="abrirModalEdicao('${l.ID}')" title="Editar Lançamento" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-pen-to-square"></i>
               </button>
+              
               <button onclick="excluirConta('${l.ID}')" title="Excluir Lançamento" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-trash"></i>
               </button>
@@ -991,6 +994,28 @@
     async function excluirCategoria(id) {
       if (!confirm('Deseja realmente excluir esta categoria da planilha?')) return;
       await enviarPost({ acao: 'excluir_categoria', id: id });
+    }
+
+    async function abaterAdiantamento(idParcela, descricao, valorAtual) {
+      const motivo = prompt(`Abater adiantamento na conta: "${descricao}" (Saldo atual: R$ ${valorAtual})\n\nQual foi o pagamento adiantado? (Ex: Licenciamento do veículo):`);
+      if (!motivo) return;
+
+      const valorStr = prompt(`Qual o valor pago no adiantamento (R$) que será descontado desta parcela?`);
+      if (!valorStr) return;
+
+      const valorAbater = parseFloat(valorStr.replace(',', '.'));
+      if (isNaN(valorAbater) || valorAbater <= 0 || valorAbater >= valorAtual) {
+        return alert('Informe um valor válido e menor que o saldo atual da parcela.');
+      }
+
+      const hoje = new Date().toISOString().slice(0, 10);
+      await enviarPost({
+        acao: 'abater_adiantamento',
+        id_parcela: idParcela,
+        valor_abatimento: valorAbater,
+        motivo: motivo,
+        data_pagamento: hoje
+      });
     }
   </script>
 </body>
