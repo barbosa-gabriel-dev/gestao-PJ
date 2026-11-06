@@ -13,6 +13,7 @@
     .tab-active { border-bottom: 3px solid #2563eb; color: #1d4ed8; font-weight: 600; }
     .loader { border: 3px solid #e2e8f0; border-top: 3px solid #2563eb; border-radius: 50%; width: 22px; height: 22px; animation: spin 0.8s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    button:disabled { opacity: 0.6; cursor: not-allowed; pointer-events: none; }
   </style>
 </head>
 <body class="text-slate-800 pb-12">
@@ -108,7 +109,7 @@
         <button onclick="abrirModalLancamento('Saída')" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-lg font-medium text-sm shadow-sm flex items-center gap-2 transition">
           <i class="fa-solid fa-minus"></i> Nova Despesa (Saída)
         </button>
-        <button onclick="gerarCustosMesAtual()" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-lg font-medium text-sm shadow-sm flex items-center gap-2 transition">
+        <button id="btnGerarCustosDash" onclick="gerarCustosMesAtual(this)" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-lg font-medium text-sm shadow-sm flex items-center gap-2 transition">
           <i class="fa-solid fa-bolt text-amber-400"></i> Gerar Custos Fixos deste Mês
         </button>
       </div>
@@ -177,7 +178,7 @@
           <p class="text-xs text-slate-500">Cadastre despesas fixas (aluguel, DAS, sistemas) para lançá-las com 1 clique todo mês.</p>
         </div>
         <div class="flex gap-2">
-          <button onclick="gerarCustosMesAtual()" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg text-sm font-medium">
+          <button onclick="gerarCustosMesAtual(this)" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg text-sm font-medium">
             <i class="fa-solid fa-bolt mr-1"></i> Lançar Fixos no Mês Atual
           </button>
           <button onclick="abrirModalCustoOp()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
@@ -209,7 +210,7 @@
       <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
         <div>
           <h2 class="font-bold text-slate-800">Plano de Categorias & Classificação DRE</h2>
-          <p class="text-xs text-slate-500">Gerencie as categorias disponíveis para Receitas (Entradas) e Despesas (Saídas). Se renomear uma categoria, os lançamentos antigos serão atualizados automaticamente.</p>
+          <p class="text-xs text-slate-500">Gerencie as categorias disponíveis para Receitas (Entradas) e Despesas (Saídas).</p>
         </div>
         <div class="flex items-center gap-2">
           <select id="filtroTipoCat" onchange="renderizarTabelaCategorias()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
@@ -453,6 +454,7 @@
 
     let chartFluxo = null;
     let chartCat = null;
+    let emProcessamento = false; // Trava global contra cliques duplos
 
     window.addEventListener('DOMContentLoaded', () => {
       const hoje = new Date();
@@ -471,6 +473,21 @@
         carregarDados();
       }
     });
+
+    // Helper para travar/destravar qualquer botão clicado
+    function definirEstadoBotao(btn, bloqueado, textoCarregando = 'Salvando...') {
+      if (!btn) return;
+      if (bloqueado) {
+        btn.dataset.textoOriginal = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin mr-1"></i> ${textoCarregando}`;
+      } else {
+        btn.disabled = false;
+        if (btn.dataset.textoOriginal) {
+          btn.innerHTML = btn.dataset.textoOriginal;
+        }
+      }
+    }
 
     function mudarAba(aba) {
       ['dashboard', 'lancamentos', 'custos', 'categorias'].forEach(item => {
@@ -547,12 +564,18 @@
       }
     }
 
-    async function enviarPost(payload) {
+    // Enviar POST protegido contra chamadas duplicadas simultâneas
+    async function enviarPost(payload, btnAcionado = null, textoBtn = 'Salvando...') {
+      if (emProcessamento) return false; // Ignora se já houver uma gravação em andamento
+
       const url = localStorage.getItem(STORAGE_KEY_URL);
       const token = localStorage.getItem(STORAGE_KEY_TOKEN);
       payload.token = token;
 
-      mostrarLoading(true, 'Salvando alterações na planilha...');
+      emProcessamento = true;
+      definirEstadoBotao(btnAcionado, true, textoBtn);
+      mostrarLoading(true, 'Gravando alterações na planilha...');
+
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -570,6 +593,8 @@
         alert('Erro ao gravar na planilha: ' + e.message);
         return false;
       } finally {
+        emProcessamento = false;
+        definirEstadoBotao(btnAcionado, false);
         mostrarLoading(false);
       }
     }
@@ -688,6 +713,7 @@
             : `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Pendente</span>`;
 
         const corValor = l.Tipo === 'Entrada' ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold';
+        const descSegura = String(l.Descricao || '').replace(/'/g, "\\'");
 
         return `
           <tr class="hover:bg-slate-50">
@@ -701,14 +727,12 @@
             <td class="py-3 px-4 whitespace-nowrap ${corValor}">${formatarMoeda(l.Valor)}</td>
             <td class="py-3 px-4">${badgeStatus}</td>
             <td class="py-3 px-4 text-right whitespace-nowrap space-x-1">
-              ${!pago ? `<button onclick="baixarConta('${l.ID}')" title="Dar Baixa (Marcar como Pago)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs font-medium"><i class="fa-solid fa-check mr-1"></i>Baixar</button>` : ''}
-              <!-- Botão extra na coluna de Ações da tabela (apenas para contas pendentes) -->
-              ${!pago ? `<button onclick="abaterAdiantamento('${l.ID}', '${l.Descricao}', ${l.Valor})" title="Descontar Adiantamento / Pago por fora" class="bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs font-medium"><i class="fa-solid fa-hand-holding-dollar"></i></button>` : ''}
+              ${!pago ? `<button onclick="baixarConta('${l.ID}', this)" title="Dar Baixa (Marcar como Pago)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-xs font-medium"><i class="fa-solid fa-check mr-1"></i>Baixar</button>` : ''}
+              ${!pago ? `<button onclick="abaterAdiantamento('${l.ID}', '${descSegura}', ${l.Valor}, this)" title="Abater Adiantamento / Desconto na Parcela" class="bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded text-xs font-medium"><i class="fa-solid fa-hand-holding-dollar"></i></button>` : ''}
               <button onclick="abrirModalEdicao('${l.ID}')" title="Editar Lançamento" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-pen-to-square"></i>
               </button>
-              
-              <button onclick="excluirConta('${l.ID}')" title="Excluir Lançamento" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
+              <button onclick="excluirConta('${l.ID}', this)" title="Excluir Lançamento" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-trash"></i>
               </button>
             </td>
@@ -741,7 +765,7 @@
               <button onclick="abrirModalEdicaoCustoOp('${c.ID_Custo}')" title="Editar Custo Fixo" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-pen-to-square"></i>
               </button>
-              <button onclick="excluirCustoOp('${c.ID_Custo}')" title="Excluir Custo Fixo" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
+              <button onclick="excluirCustoOp('${c.ID_Custo}', this)" title="Excluir Custo Fixo" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-trash"></i>
               </button>
             </td>
@@ -780,7 +804,7 @@
               <button onclick="abrirModalEdicaoCategoria('${c.ID_Cat}')" title="Editar Categoria" class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-pen-to-square"></i>
               </button>
-              <button onclick="excluirCategoria('${c.ID_Cat}')" title="Excluir Categoria" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
+              <button onclick="excluirCategoria('${c.ID_Cat}', this)" title="Excluir Categoria" class="text-slate-400 hover:text-rose-600 px-2 py-1 rounded transition">
                 <i class="fa-solid fa-trash"></i>
               </button>
             </td>
@@ -808,13 +832,16 @@
 
     // Modal Lançamento (Novo vs Edição)
     function abrirModalLancamento(tipoPadrao) {
+      const btn = document.getElementById('btnSubmitLanc');
+      btn.disabled = false;
+      btn.innerText = 'Salvar na Planilha';
+
       document.getElementById('formLancamento').reset();
       document.getElementById('lancId').value = '';
       document.getElementById('lancTipo').value = tipoPadrao;
       document.getElementById('lancCentroCusto').value = 'Geral';
       document.getElementById('lancVencimento').value = new Date().toISOString().slice(0, 10);
       document.getElementById('tituloModalLanc').innerText = tipoPadrao === 'Entrada' ? 'Nova Receita (Entrada)' : 'Nova Despesa (Saída)';
-      document.getElementById('btnSubmitLanc').innerText = 'Salvar na Planilha';
       atualizarSelectCategorias();
       document.getElementById('modalLancamento').classList.remove('hidden');
     }
@@ -822,6 +849,10 @@
     function abrirModalEdicao(id) {
       const item = estado.lancamentos.find(l => String(l.ID) === String(id));
       if (!item) return alert('Lançamento não encontrado.');
+
+      const btn = document.getElementById('btnSubmitLanc');
+      btn.disabled = false;
+      btn.innerText = 'Salvar Alterações';
 
       document.getElementById('lancId').value = item.ID;
       document.getElementById('lancTipo').value = item.Tipo || 'Saída';
@@ -836,24 +867,30 @@
       document.getElementById('lancObservacoes').value = item.Observacoes || '';
 
       document.getElementById('tituloModalLanc').innerText = `Editar ${item.Tipo}: ${item.Descricao}`;
-      document.getElementById('btnSubmitLanc').innerText = 'Salvar Alterações';
       document.getElementById('modalLancamento').classList.remove('hidden');
     }
 
     // Modal Custo Operacional (Novo vs Edição)
     function abrirModalCustoOp() {
+      const btn = document.getElementById('btnSubmitCustoOp');
+      btn.disabled = false;
+      btn.innerText = 'Salvar Custo Fixo';
+
       document.getElementById('formCustoOp').reset();
       document.getElementById('copId').value = '';
       document.getElementById('copCentro').value = 'Operacional';
       document.getElementById('copAtivo').value = 'Sim';
       document.getElementById('tituloModalCustoOp').innerText = 'Cadastrar Custo Fixo Mensal';
-      document.getElementById('btnSubmitCustoOp').innerText = 'Salvar Custo Fixo';
       document.getElementById('modalCustoOp').classList.remove('hidden');
     }
 
     function abrirModalEdicaoCustoOp(idCusto) {
       const item = estado.custos_op.find(c => String(c.ID_Custo) === String(idCusto));
       if (!item) return alert('Custo operacional não encontrado.');
+
+      const btn = document.getElementById('btnSubmitCustoOp');
+      btn.disabled = false;
+      btn.innerText = 'Salvar Alterações';
 
       document.getElementById('copId').value = item.ID_Custo;
       document.getElementById('copDescricao').value = item.Descricao || '';
@@ -864,18 +901,20 @@
       document.getElementById('copAtivo').value = String(item.Ativo).toLowerCase() === 'não' ? 'Não' : 'Sim';
 
       document.getElementById('tituloModalCustoOp').innerText = `Editar Custo Fixo: ${item.Descricao}`;
-      document.getElementById('btnSubmitCustoOp').innerText = 'Salvar Alterações';
       document.getElementById('modalCustoOp').classList.remove('hidden');
     }
 
     // Modal Categoria (Novo vs Edição)
     function abrirModalCategoria() {
+      const btn = document.getElementById('btnSubmitCat');
+      btn.disabled = false;
+      btn.innerText = 'Salvar Categoria';
+
       document.getElementById('formCategoria').reset();
       document.getElementById('catId').value = '';
       document.getElementById('catFluxo').value = 'Saída';
       document.getElementById('catDre').value = 'Custo Operacional';
       document.getElementById('tituloModalCategoria').innerText = 'Nova Categoria';
-      document.getElementById('btnSubmitCat').innerText = 'Salvar Categoria';
       document.getElementById('modalCategoria').classList.remove('hidden');
     }
 
@@ -883,19 +922,25 @@
       const item = estado.categorias.find(c => String(c.ID_Cat) === String(idCat));
       if (!item) return alert('Categoria não encontrada.');
 
+      const btn = document.getElementById('btnSubmitCat');
+      btn.disabled = false;
+      btn.innerText = 'Salvar Alterações';
+
       document.getElementById('catId').value = item.ID_Cat;
       document.getElementById('catNome').value = item.Nome_Categoria || '';
       document.getElementById('catFluxo').value = item.Tipo_Fluxo || 'Saída';
       document.getElementById('catDre').value = item.Classificacao_DRE || 'Custo Operacional';
 
       document.getElementById('tituloModalCategoria').innerText = `Editar Categoria: ${item.Nome_Categoria}`;
-      document.getElementById('btnSubmitCat').innerText = 'Salvar Alterações';
       document.getElementById('modalCategoria').classList.remove('hidden');
     }
 
-    // Ações Lançamentos
+    // Ações Lançamentos (Com bloqueio imediato do botão de Submit)
     async function salvarLancamento(e) {
       e.preventDefault();
+      if (emProcessamento) return;
+
+      const btnSubmit = document.getElementById('btnSubmitLanc');
       const idExistente = document.getElementById('lancId').value.trim();
       const status = document.getElementById('lancStatus').value;
       const venc = document.getElementById('lancVencimento').value;
@@ -916,7 +961,7 @@
       };
 
       const acao = idExistente ? 'editar_lancamento' : 'adicionar_lancamento';
-      const ok = await enviarPost({ acao, dados });
+      const ok = await enviarPost({ acao, dados }, btnSubmit, 'Salvando...');
 
       if (ok) {
         document.getElementById('formLancamento').reset();
@@ -925,78 +970,13 @@
       }
     }
 
-    async function baixarConta(id) {
+    async function baixarConta(id, btnEl) {
       const hoje = new Date().toISOString().slice(0, 10);
-      await enviarPost({ acao: 'baixar_lancamento', id: id, data_pagamento: hoje });
+      await enviarPost({ acao: 'baixar_lancamento', id: id, data_pagamento: hoje }, btnEl, '...');
     }
 
-    async function excluirConta(id) {
-      if (!confirm('Deseja realmente excluir este lançamento da planilha?')) return;
-      await enviarPost({ acao: 'excluir_lancamento', id: id });
-    }
-
-    // Ações Custos Operacionais
-    async function salvarCustoOp(e) {
-      e.preventDefault();
-      const idExistente = document.getElementById('copId').value.trim();
-      const dados = {
-        ID_Custo: idExistente || undefined,
-        Descricao: document.getElementById('copDescricao').value,
-        Valor_Base: parseFloat(document.getElementById('copValor').value),
-        Dia_Vencimento: parseInt(document.getElementById('copDia').value),
-        Categoria: document.getElementById('copCategoria').value,
-        Centro_Custo: document.getElementById('copCentro').value,
-        Ativo: document.getElementById('copAtivo').value
-      };
-
-      const acao = idExistente ? 'editar_custo_op' : 'adicionar_custo_op';
-      const ok = await enviarPost({ acao, dados });
-
-      if (ok) {
-        document.getElementById('formCustoOp').reset();
-        document.getElementById('copId').value = '';
-        fecharModal('modalCustoOp');
-      }
-    }
-
-    async function excluirCustoOp(id) {
-      if (!confirm('Deseja realmente excluir este custo operacional fixo da matriz?')) return;
-      await enviarPost({ acao: 'excluir_custo_op', id: id });
-    }
-
-    async function gerarCustosMesAtual() {
-      const mesAno = document.getElementById('filtroMes').value;
-      if (!confirm(`Gerar todos os custos operacionais ativos para o mês ${mesAno}? (O sistema ignora os que já foram lançados no mês)`)) return;
-      await enviarPost({ acao: 'gerar_custos_mes', mes_ano: mesAno });
-    }
-
-    // Ações Categorias
-    async function salvarCategoria(e) {
-      e.preventDefault();
-      const idExistente = document.getElementById('catId').value.trim();
-      const dados = {
-        ID_Cat: idExistente || undefined,
-        Nome_Categoria: document.getElementById('catNome').value.trim(),
-        Tipo_Fluxo: document.getElementById('catFluxo').value,
-        Classificacao_DRE: document.getElementById('catDre').value
-      };
-
-      const acao = idExistente ? 'editar_categoria' : 'adicionar_categoria';
-      const ok = await enviarPost({ acao, dados });
-
-      if (ok) {
-        document.getElementById('formCategoria').reset();
-        document.getElementById('catId').value = '';
-        fecharModal('modalCategoria');
-      }
-    }
-
-    async function excluirCategoria(id) {
-      if (!confirm('Deseja realmente excluir esta categoria da planilha?')) return;
-      await enviarPost({ acao: 'excluir_categoria', id: id });
-    }
-
-    async function abaterAdiantamento(idParcela, descricao, valorAtual) {
+    async function abaterAdiantamento(idParcela, descricao, valorAtual, btnEl) {
+      if (emProcessamento) return;
       const motivo = prompt(`Abater adiantamento na conta: "${descricao}" (Saldo atual: R$ ${valorAtual})\n\nQual foi o pagamento adiantado? (Ex: Licenciamento do veículo):`);
       if (!motivo) return;
 
@@ -1015,7 +995,79 @@
         valor_abatimento: valorAbater,
         motivo: motivo,
         data_pagamento: hoje
-      });
+      }, btnEl, '...');
+    }
+
+    async function excluirConta(id, btnEl) {
+      if (!confirm('Deseja realmente excluir este lançamento da planilha?')) return;
+      await enviarPost({ acao: 'excluir_lancamento', id: id }, btnEl, '');
+    }
+
+    // Ações Custos Operacionais
+    async function salvarCustoOp(e) {
+      e.preventDefault();
+      if (emProcessamento) return;
+
+      const btnSubmit = document.getElementById('btnSubmitCustoOp');
+      const idExistente = document.getElementById('copId').value.trim();
+      const dados = {
+        ID_Custo: idExistente || undefined,
+        Descricao: document.getElementById('copDescricao').value,
+        Valor_Base: parseFloat(document.getElementById('copValor').value),
+        Dia_Vencimento: parseInt(document.getElementById('copDia').value),
+        Categoria: document.getElementById('copCategoria').value,
+        Centro_Custo: document.getElementById('copCentro').value,
+        Ativo: document.getElementById('copAtivo').value
+      };
+
+      const acao = idExistente ? 'editar_custo_op' : 'adicionar_custo_op';
+      const ok = await enviarPost({ acao, dados }, btnSubmit, 'Salvando...');
+
+      if (ok) {
+        document.getElementById('formCustoOp').reset();
+        document.getElementById('copId').value = '';
+        fecharModal('modalCustoOp');
+      }
+    }
+
+    async function excluirCustoOp(id, btnEl) {
+      if (!confirm('Deseja realmente excluir este custo operacional fixo da matriz?')) return;
+      await enviarPost({ acao: 'excluir_custo_op', id: id }, btnEl, '');
+    }
+
+    async function gerarCustosMesAtual(btnEl) {
+      const mesAno = document.getElementById('filtroMes').value;
+      if (!confirm(`Gerar todos os custos operacionais ativos para o mês ${mesAno}? (O sistema ignora os que já foram lançados no mês)`)) return;
+      await enviarPost({ acao: 'gerar_custos_mes', mes_ano: mesAno }, btnEl, 'Gerando...');
+    }
+
+    // Ações Categorias
+    async function salvarCategoria(e) {
+      e.preventDefault();
+      if (emProcessamento) return;
+
+      const btnSubmit = document.getElementById('btnSubmitCat');
+      const idExistente = document.getElementById('catId').value.trim();
+      const dados = {
+        ID_Cat: idExistente || undefined,
+        Nome_Categoria: document.getElementById('catNome').value.trim(),
+        Tipo_Fluxo: document.getElementById('catFluxo').value,
+        Classificacao_DRE: document.getElementById('catDre').value
+      };
+
+      const acao = idExistente ? 'editar_categoria' : 'adicionar_categoria';
+      const ok = await enviarPost({ acao, dados }, btnSubmit, 'Salvando...');
+
+      if (ok) {
+        document.getElementById('formCategoria').reset();
+        document.getElementById('catId').value = '';
+        fecharModal('modalCategoria');
+      }
+    }
+
+    async function excluirCategoria(id, btnEl) {
+      if (!confirm('Deseja realmente excluir esta categoria da planilha?')) return;
+      await enviarPost({ acao: 'excluir_categoria', id: id }, btnEl, '');
     }
   </script>
 </body>
